@@ -1,0 +1,17 @@
+# local database server and uploads
+.pgdata/
+backend/uploads/
+
+# secrets
+backend/.env
+backend/.vapid/
+
+# python
+backend/.venv/
+__pycache__/
+.pytest_cache/
+
+# node
+frontend/node_modules/
+frontend/.next/
+frontend/next-env.d.ts
