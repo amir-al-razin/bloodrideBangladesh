@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { get, postForm, type Hospital } from "@/lib/api";
 
-// The one request form, used on the landing page and on /request (where the hospital posters lead).
+// The one request form, used on /request (where the home page and hospital posters lead).
 // Picking a hospital shows how many eligible donors per blood group are nearby right now.
 // Nothing is sent until "Send request".
 
@@ -12,7 +12,6 @@ const GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const PRETTY = (g: string) => g.replace("-", "−");
 const URGENCY = [
   { value: "emergency", label: "Emergency" },
-  { value: "urgent", label: "Today" },
   { value: "scheduled", label: "Scheduled" },
 ];
 
@@ -65,7 +64,14 @@ export default function RequestForm() {
     });
   }
 
-  const ready = hospitalId && name.trim().length >= 2 && phone && group && slip && neededBy && !busy;
+  const ready =
+    hospitalId &&
+    name.trim().length >= 2 &&
+    phone &&
+    group &&
+    slip &&
+    (urgency !== "scheduled" || Boolean(neededBy)) &&
+    !busy;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -79,7 +85,10 @@ export default function RequestForm() {
     form.set("blood_group", group);
     form.set("bags_needed", String(bags));
     form.set("urgency", urgency);
-    form.set("needed_by", neededBy);
+    form.set(
+      "needed_by",
+      urgency === "scheduled" ? neededBy : localInput(new Date(Date.now() + 3 * 3600_000)),
+    );
     form.set("slip", slip);
     try {
       const res = await postForm<Created>("/api/requests", form);
@@ -96,8 +105,7 @@ export default function RequestForm() {
   return (
     <form onSubmit={submit} aria-label="Blood request">
       <section className="card">
-        <p className="step-title"><span className="num">1</span>Who needs blood</p>
-        <label htmlFor="hospital">Hospital</label>
+        <label htmlFor="hospital" style={{ marginTop: 0 }}>Hospital</label>
         {params.get("hospital") && hospital && !changeHospital ? (
           <p style={{ margin: 0, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
             <b>{hospital.name}</b>
@@ -125,37 +133,38 @@ export default function RequestForm() {
         {count !== null && (
           <p className="small" style={{ margin: "10px 0 0" }} aria-live="polite">
             {count
-              ? `${count} ${PRETTY(group)} donor${count > 1 ? "s" : ""} within ${nearby!.radius_km} km can donate today`
-              : `No ${PRETTY(group)} donor within ${nearby!.radius_km} km right now, we’ll still keep looking`}
+              ? `${count} ${PRETTY(group)} donor${count > 1 ? "s" : ""} within ${nearby!.radius_km}\u00a0km can donate today`
+              : `No ${PRETTY(group)} donors within ${nearby!.radius_km}\u00a0km right now, but we’ll still keep looking`}
           </p>
         )}
 
-        <div className="row">
-          <div>
-            <label htmlFor="bags">Bags</label>
-            <input id="bags" type="number" min={1} max={10} value={bags}
-                   onChange={(e) => setBags(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} />
-          </div>
-          <div>
-            <label htmlFor="needed">Needed by</label>
-            <input id="needed" type="datetime-local" value={neededBy} onChange={(e) => setNeededBy(e.target.value)} required />
-          </div>
+        <div>
+          <label htmlFor="bags">Bags</label>
+          <input id="bags" type="number" min={1} max={10} value={bags}
+                 onChange={(e) => setBags(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} />
         </div>
 
-        <label>How urgent?</label>
+        <label>Urgency</label>
         <div className="seg" role="group" aria-label="Urgency">
           {URGENCY.map((u) => (
             <button type="button" key={u.value} aria-pressed={urgency === u.value} onClick={() => setUrgency(u.value)}>{u.label}</button>
           ))}
         </div>
+
+        {urgency === "scheduled" && (
+          <div>
+            <label htmlFor="needed">Needed by</label>
+            <input id="needed" type="datetime-local" value={neededBy} onChange={(e) => setNeededBy(e.target.value)} required />
+          </div>
+        )}
       </section>
 
       <section className="card">
-        <p className="step-title"><span className="num">2</span>Your details</p>
-        <p className="small" style={{ margin: 0 }}>No sign-up, donors who accept can call you on this number</p>
+        <p className="step-title"><span className="num">2</span>Patient details</p>
+        <p className="small" style={{ margin: 0 }}>No sign-up required — donors who accept can call you on this number.</p>
         <div className="row">
           <div>
-            <label htmlFor="name">Your name</label>
+            <label htmlFor="name">Patient’s full name</label>
             <input id="name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required />
           </div>
           <div>
@@ -178,7 +187,7 @@ export default function RequestForm() {
       {error && <p className="error" role="alert">{error}</p>}
       <div className="actions">
         <button className="primary wide" type="submit" disabled={!ready}>{busy ? "Sending…" : "Send request"}</button>
-        <p className="small" style={{ textAlign: "center", margin: 0 }}>Donors are alerted only when you press send</p>
+        <p className="small" style={{ textAlign: "center", margin: 0 }}>Donors are alerted only when you send the request.</p>
       </div>
     </form>
   );

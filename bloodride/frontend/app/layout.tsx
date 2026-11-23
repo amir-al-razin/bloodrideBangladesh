@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Figtree, Hind_Siliguri } from "next/font/google";
 import Link from "next/link";
-import Drop from "@/components/drop";
+import { Suspense } from "react";
+import TopNav from "@/components/top-nav";
 import "./globals.css";
 
 // Figtree for all English text; Hind Siliguri only for Bangla (it is the fallback for Bengali characters).
@@ -19,15 +20,27 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${figtree.variable} ${hind.variable}`}>
       <body>
-        <div className="wrap">
+        <div className="shell">
           <header className="top">
-            <Link href="/" className="brand"><Drop size={24} /><span>Blood<b>Ride</b></span></Link>
-            <nav><Link href="/donor">For donors</Link></nav>
+            <Link href="/" className="brand"><span>Blood<b>Ride</b></span></Link>
+            <Suspense
+              fallback={
+                <nav aria-label="Primary">
+                  <Link href="/faq" className="nav-link">FAQ</Link>
+                </nav>
+              }
+            >
+              <TopNav />
+            </Suspense>
           </header>
-          {children}
+          <div className="page-body">{children}</div>
           <footer className="bottom">
             <span>BloodRide · Dhaka</span>
-            <nav><Link href="/posters">Hospital posters</Link><Link href="/admin">Admin</Link></nav>
+            <nav>
+              <Link href="/faq">FAQ</Link>
+              <Link href="/posters">Hospital posters</Link>
+              <Link href="/admin">Admin</Link>
+            </nav>
           </footer>
         </div>
       </body>

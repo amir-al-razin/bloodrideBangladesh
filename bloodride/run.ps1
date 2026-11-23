@@ -11,7 +11,7 @@ param([switch]$Prod, [switch]$Keep)
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $pgbin = "C:\Program Files\PostgreSQL\18\bin"
-if (Test-Path $pgbin) { $env:PATH = "$pgbin;$env:PATH" }
+if (Test-Path "C:\Program Files\PostgreSQL\18\share\extension\postgis.control") { $env:PATH = "$pgbin;$env:PATH" }
 
 function Step($text) { Write-Host "`n== $text" -ForegroundColor Cyan }
 function Fail($text) { Write-Host "`n$text" -ForegroundColor Red; exit 1 }

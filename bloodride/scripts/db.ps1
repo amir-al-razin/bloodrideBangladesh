@@ -11,7 +11,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $data = Join-Path $root ".pgdata"
 $port = 5433
 $pgbin = "C:\Program Files\PostgreSQL\18\bin"
-if (Test-Path $pgbin) { $env:PATH = "$pgbin;$env:PATH" }
+if (Test-Path "C:\Program Files\PostgreSQL\18\share\extension\postgis.control") { $env:PATH = "$pgbin;$env:PATH" }
 
 function Start-Db {
     # Start the server in its own hidden window. If it shared this terminal, closing the terminal

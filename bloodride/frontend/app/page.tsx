@@ -1,29 +1,36 @@
 import Link from "next/link";
-import { Suspense } from "react";
-import RequestForm from "./request/request-form";
 
 export default function Home() {
   return (
-    <main>
-      <section className="hero">
-        <p className="bn" lang="bn">রক্ত লাগবে?</p>
-        <h1>Find a blood donor near the hospital, today</h1>
-        <p className="lead">Fill in the request below and send the doctor’s slip, and we alert donors close to the hospital straight away</p>
-      </section>
+    <main className="home-hero">
+      <svg
+        className="home-lines"
+        viewBox="0 0 600 420"
+        fill="none"
+        aria-hidden="true"
+      >
+        <line x1="360" y1="0" x2="360" y2="420" stroke="var(--rule)" strokeWidth="1" />
+        <line x1="120" y1="250" x2="600" y2="250" stroke="var(--rule)" strokeWidth="1" />
+        <line x1="210" y1="420" x2="580" y2="20" stroke="var(--rule)" strokeWidth="1" />
+      </svg>
 
-      <Suspense fallback={<div className="card" style={{ minHeight: 420 }} />}>
-        <RequestForm />
-      </Suspense>
+      <h1 className="home-title">
+        WE MOVE <span>DONORS.</span>
+        <br />
+        YOU SAVE LIVES.
+      </h1>
 
-      <ul className="facts-line">
-        <li>Only donors past their 90-day wait</li>
-        <li>Your number is shared only with donors who accept</li>
-        <li>Far donors get a student volunteer ride</li>
-      </ul>
+      <p className="home-sub">
+        Dhaka’s blood logistics network. No friction. No syndicates.
+      </p>
 
-      <div className="donate-line">
-        <p><b>Can you give blood?</b> We message you only when someone close by needs your group, and you choose every time</p>
-        <Link className="btn" href="/donor">Become a donor</Link>
+      <div className="home-cta">
+        <Link className="btn primary pill-btn" href="/request">
+          REQUEST BLOOD
+        </Link>
+        <Link className="btn dark pill-btn" href="/donor">
+          DONATE BLOOD
+        </Link>
       </div>
     </main>
   );
