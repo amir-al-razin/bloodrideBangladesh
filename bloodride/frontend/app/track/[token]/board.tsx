@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { get, when } from "@/lib/api";
+import Reveal, { type RevealState } from "./reveal";
 
 type Donor = { donor: string; distance_km: string; phone_shared: boolean; phone: string | null; mission_status: string };
 type BoardData = {
@@ -10,6 +11,7 @@ type BoardData = {
   needed_by: string; hospital: string; slip_status: string;
   alerted: number; seen: number; declined: number; accepted: number; backup: number; rounds: number;
   donors: Donor[];
+  reveal: { state: RevealState; unlocked_at: string | null };
 };
 
 const STATUS_TEXT: Record<string, string> = {
@@ -92,6 +94,8 @@ export default function Board() {
           </ul>
         </section>
       )}
+
+      {data.status !== "cancelled" && <Reveal token={token} state={data.reveal.state} group={data.blood_group} />}
 
       <div className="actions noprint">
         <button onClick={copyLink}>{copied ? "Link copied" : "Copy this private link"}</button>

@@ -7,11 +7,18 @@ import pytest
 
 from conftest import connect
 
-DEMO_ONE = "01800000001"
-
-
 def demo_donor(conn):
-    return conn.execute("SELECT user_id FROM app_user WHERE phone = %s", (DEMO_ONE,)).fetchone()["user_id"]
+    """An AB- donor near Dhaka Medical College with no donation on record (so the 90-day tests start clean),
+    whatever has been done in the app since the last reset."""
+    row = conn.execute(
+        """SELECT d.user_id FROM donor d JOIN hospital h ON h.hospital_id = 1
+            WHERE d.blood_group = 'AB-' AND d.is_available
+              AND NOT EXISTS (SELECT 1 FROM donation dn WHERE dn.donor_id = d.user_id)
+              AND ST_DWithin(d.home_location, h.location, 10000)
+            ORDER BY ST_Distance(d.home_location, h.location) LIMIT 1""").fetchone()
+    if not row:
+        pytest.skip("no AB- donor without donations near hospital 1 (reset the database)")
+    return row["user_id"]
 
 
 def new_request(conn, tag="t-" + "x" * 8, group="AB-"):

@@ -31,22 +31,22 @@ Agreed 22 November 2026. Builds on `summary.md`. Changes since the 21 November p
 - **On an alert:** accept or decline, and choose whether to share their number with that patient.
 - **When their number is shown through an unlock**, they get a notice with a **Report misuse** button.
 
-## 3. Paid contact unlock (option a: with safety rules)
+## 3. Show all donor numbers (built 23 Nov; Tk 10 payment later)
 
-The patient pays **Tk 10** to see donor numbers for **their own request**.
+A patient whose **slip is verified** (by our team now, by OCR later) can press **Show all donor numbers** on their private tracking page.
 
-| Rule | Detail |
+| Rule | As built |
 |---|---|
-| **1. Opt-in only** | Only donors who ticked "list my number for paid unlock" appear. Off by default; donors can turn it off any time |
-| **2. This request only** | The request's blood group; eligible donors only (90-day rule, available); nearest first; at most **20 numbers** shown at a time |
-| **3. Logged, and donors are told** | Every donor shown is written to `contact_reveal`, and gets a notice: *"Your number was shown for an AB− request at Dhaka Medical College Hospital."* The notice has **Report misuse**. Two reports block the requester's phone |
-| **4. One unlock per slip image** | One request per slip photo (already enforced), and one unlock per request |
+| **1. Verified slip only** | The button opens only when the slip is `verified` or `auto_verified`. A rejected slip cancels the request, so it can never unlock |
+| **2. Opt-in only** | Only donors who switched on **Show my number to verified patients** in their dashboard (off by default) |
+| **3. All donors of that blood group** | Every opted-in donor of the request's group who can donate today (90-day rule, not paused), all of Dhaka, nearest first. **Changed on 23 Nov from "at most 20" to "all", as asked** |
+| **4. Updates by itself** | The list is re-checked every 10 seconds: donors who opt in or become eligible appear; donors who opt out, pause or have just donated disappear |
+| **5. Logged, and donors see it** | Every donor shown is written to `contact_reveal`. The donor's dashboard lists **Who saw your number** (hospital, blood group, time). The *Report misuse* button comes in Sprint 4 |
+| **6. Ends** | When the request is closed or cancelled, or 48 hours after unlocking. Pressing the button again keeps the first time |
 
-**The list stays up to date.** While the unlock is valid, the list refreshes as donors become eligible, opt in or come closer. Newly shown donors are logged and notified the same way.
+**Payment:** free during testing. The Tk 10 step (bKash) is a Sprint 3 task.
 
-**Access ends** when the request is filled, closed or cancelled, or **48 hours after payment**, whichever comes first.
-
-**Payment:** recorded only for now, so in the prototype "Pay Tk 10" is a confirm step. The bKash test system comes in Sprint 4 (6–19 Jan).
+**Database:** `donor.listed_for_reveal`, `blood_request.contacts_unlocked_at`, table `contact_reveal`, procedure `unlock_contacts`, function `unlocked_donors` (named errors BR009 not verified, BR010 not unlocked, BR011 closed).
 
 ## 4. Donor location from the browser
 
@@ -73,7 +73,7 @@ The patient pays **Tk 10** to see donor numbers for **their own request**.
 
 | Change | Purpose |
 |---|---|
-| `donor` + `current_location` (geography), `location_updated_at`, `listed_for_unlock` (bool, default false) | Location on open; opt-in |
+| `donor` + `current_location` (geography), `location_updated_at` | Location on open (the opt-in column `listed_for_reveal` is already built) |
 | `donors_in_ring` uses `current_location` if under 6 h old, otherwise `home_location` | Search uses the freshest position |
 | `payment` + `purpose` ('ride_fare' / 'contact_unlock') | One payment table for fares and unlocks |
 | New **`contact_reveal`** (request_id, donor_id, revealed_at), PK (request_id, donor_id) | Log of who was shown; drives the donor notice |

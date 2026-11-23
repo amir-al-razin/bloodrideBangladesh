@@ -128,6 +128,8 @@ BEGIN
     IF NOT p_approve THEN
         UPDATE blood_request SET status = 'cancelled' WHERE slip_id = p_slip_id;
     END IF;
+    -- tell the patient's open tracking page (a verified slip opens "show all donor numbers")
+    PERFORM pg_notify('live_board', request_id::text) FROM blood_request WHERE slip_id = p_slip_id;
 END $$;
 
 -- ---------------------------------------------------------------
@@ -248,4 +250,83 @@ BEGIN
          WHERE request_id = p_request_id AND donor_id = p_donor_id;
         p_result := 'backup';
     END IF;
+END $$;
+
+-- ---------------------------------------------------------------
+-- Reveal all numbers (23 Nov). Free for now; a Tk 10 payment step comes later.
+-- Named errors: BR009 slip_not_verified   BR010 contacts_locked   BR011 contacts_expired
+-- ---------------------------------------------------------------
+
+-- unlock_contacts: a patient with a VERIFIED slip turns on "reveal all numbers" for their request.
+-- Pressing it again changes nothing (the first unlock time is kept, so the 48 hours do not restart).
+CREATE OR REPLACE PROCEDURE unlock_contacts(
+    p_token text, INOUT p_request_id int DEFAULT NULL, INOUT p_unlocked_at timestamptz DEFAULT NULL)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_status text;
+    v_check  text;
+BEGIN
+    SELECT r.request_id, r.status, s.check_status, r.contacts_unlocked_at
+      INTO p_request_id, v_status, v_check, p_unlocked_at
+      FROM blood_request r JOIN requisition_slip s USING (slip_id)
+     WHERE r.tracking_token = p_token
+       FOR UPDATE OF r;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'request_not_found: no request with this link' USING ERRCODE = 'BR003';
+    END IF;
+    IF v_status IN ('closed', 'cancelled') THEN
+        RAISE EXCEPTION 'request_closed: request % is %', p_request_id, v_status USING ERRCODE = 'BR006';
+    END IF;
+    IF v_check NOT IN ('auto_verified', 'verified') THEN
+        RAISE EXCEPTION 'slip_not_verified: request % slip is %', p_request_id, v_check USING ERRCODE = 'BR009';
+    END IF;
+    IF p_unlocked_at IS NULL THEN
+        UPDATE blood_request SET contacts_unlocked_at = now()
+         WHERE request_id = p_request_id
+        RETURNING contacts_unlocked_at INTO p_unlocked_at;
+    END IF;
+END $$;
+
+-- unlocked_donors: the current list for an unlocked request. Re-evaluated on every call, so it
+-- updates by itself: donors who opt in, become eligible or come back from a pause appear; donors who
+-- opt out, pause or donate (90-day wait) disappear. Every donor shown is logged in contact_reveal.
+CREATE OR REPLACE FUNCTION unlocked_donors(p_token text)
+RETURNS TABLE (donor_id int, full_name text, phone text, campus text, distance_km numeric, first_shown_at timestamptz)
+LANGUAGE plpgsql AS $$
+DECLARE
+    r blood_request%ROWTYPE;
+BEGIN
+    SELECT * INTO r FROM blood_request WHERE tracking_token = p_token;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'request_not_found: no request with this link' USING ERRCODE = 'BR003';
+    END IF;
+    IF r.contacts_unlocked_at IS NULL THEN
+        RAISE EXCEPTION 'contacts_locked: request % has not unlocked donor numbers', r.request_id USING ERRCODE = 'BR010';
+    END IF;
+    IF r.status IN ('closed', 'cancelled') OR now() > r.contacts_unlocked_at + interval '48 hours' THEN
+        RAISE EXCEPTION 'contacts_expired: request % can no longer see donor numbers', r.request_id USING ERRCODE = 'BR011';
+    END IF;
+
+    -- log the donors shown for the first time
+    INSERT INTO contact_reveal (request_id, donor_id)
+    SELECT r.request_id, d.user_id
+      FROM donor d
+     WHERE d.blood_group = r.blood_group AND d.listed_for_reveal AND d.is_available
+       AND (d.next_eligible_date IS NULL OR d.next_eligible_date <= current_date)
+       AND d.user_id <> r.requester_id
+    ON CONFLICT DO NOTHING;
+
+    RETURN QUERY
+    SELECT d.user_id, u.full_name, u.phone, c.name,
+           round((ST_Distance(d.home_location, h.location) / 1000)::numeric, 1),
+           cr.revealed_at
+      FROM donor d
+      JOIN app_user u ON u.user_id = d.user_id
+      LEFT JOIN campus c ON c.campus_id = u.campus_id
+      JOIN hospital h ON h.hospital_id = r.hospital_id
+      JOIN contact_reveal cr ON cr.request_id = r.request_id AND cr.donor_id = d.user_id
+     WHERE d.blood_group = r.blood_group AND d.listed_for_reveal AND d.is_available
+       AND (d.next_eligible_date IS NULL OR d.next_eligible_date <= current_date)
+       AND d.user_id <> r.requester_id
+     ORDER BY ST_Distance(d.home_location, h.location);
 END $$;

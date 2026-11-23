@@ -1,4 +1,5 @@
--- BloodRide schema: 16 tables, matching Team15_ERD.pdf (21 Nov 2026).
+-- BloodRide schema: 17 tables. The 16 of Team15_ERD.pdf (21 Nov 2026), plus contact_reveal and the
+-- reveal columns (donor.listed_for_reveal, blood_request.contacts_unlocked_at) added on 23 Nov 2026.
 -- Owner: Saa'd. Run through db/build.sql.
 
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -27,7 +28,8 @@ CREATE TABLE donor (
     blood_group        text NOT NULL CHECK (blood_group IN ('A+','A-','B+','B-','AB+','AB-','O+','O-')),
     home_location      geography(Point, 4326) NOT NULL,
     is_available       boolean NOT NULL DEFAULT true,
-    next_eligible_date date                                    -- derived: set only by trg_set_next_eligible
+    next_eligible_date date,                                   -- derived: set only by trg_set_next_eligible
+    listed_for_reveal  boolean NOT NULL DEFAULT false          -- opt-in: verified patients may see this number
 );
 
 CREATE TABLE rider (
@@ -82,6 +84,7 @@ CREATE TABLE blood_request (
     tracking_token text NOT NULL UNIQUE DEFAULT replace(gen_random_uuid()::text, '-', ''),
     status         text NOT NULL DEFAULT 'open'
                    CHECK (status IN ('open', 'searching', 'filled', 'closed', 'cancelled')),
+    contacts_unlocked_at timestamptz,                          -- "reveal all numbers" pressed (free now, paid later)
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 
@@ -95,6 +98,14 @@ CREATE TABLE donor_alert (
     response     text NOT NULL DEFAULT 'pending'
                  CHECK (response IN ('pending', 'accepted', 'declined', 'backup')),
     responded_at timestamptz,
+    PRIMARY KEY (request_id, donor_id)
+);
+
+-- every donor number shown to a patient through "reveal all numbers": the log behind the donor's notice
+CREATE TABLE contact_reveal (
+    request_id  int NOT NULL REFERENCES blood_request ON DELETE CASCADE,
+    donor_id    int NOT NULL REFERENCES donor ON DELETE CASCADE,
+    revealed_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (request_id, donor_id)
 );
 
@@ -187,3 +198,4 @@ CREATE INDEX hospital_loc_gix        ON hospital USING gist (location);
 CREATE INDEX donor_alert_donor_idx   ON donor_alert (donor_id, response);
 CREATE INDEX blood_request_state_idx ON blood_request (status, created_at);
 CREATE INDEX donation_donor_idx      ON donation (donor_id, donated_on);
+CREATE INDEX contact_reveal_donor_idx ON contact_reveal (donor_id, revealed_at);

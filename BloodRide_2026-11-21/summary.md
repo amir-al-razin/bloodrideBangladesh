@@ -11,7 +11,7 @@ Last updated **22 November 2026**. This file is the single source for the curren
 | DBMS lab proposal (ERD, outline, slides) | Submitted earlier (16 entities). A few later decisions are not in those PDFs yet (section 8.2) |
 | SD lab proposal deck | Ready for **Tue 24 Nov**. Doesn't yet mention the paid unlock or donor location (decided 22 Nov) |
 | Product backlog | **63 tasks**, five two-week sprints, balanced 1–4 tasks per person per sprint |
-| **Sprint 1 prototype** | **Built and working locally:** request → alerts → accept → live board, redesigned website, one-command launcher. **19/19 tests pass.** Left: real-device checks of web push and Telegram, Tesseract install, pushing to GitHub |
+| **Sprint 1 prototype** | **Built and working locally:** request → alerts → accept → live board, redesigned website, one-command launcher. **28/28 tests pass.** Left: real-device checks of web push and Telegram, Tesseract install, pushing to GitHub |
 | Open decisions | Section 11 (team) and section 12 (later) |
 
 ---
@@ -141,12 +141,14 @@ Access ends when the request closes, or 48 hours after payment.
 | 22 | *(22 Nov)* Website look: minimal, off-white and one red, flat surfaces; **Figtree** (English) + Hind Siliguri (Bangla); the landing page **is** the request form, with live counts of eligible donors per blood group near the chosen hospital, and only Send request alerts anyone. The donor page is a donor home (blood-group label, 90-day status, requests, availability switch, alert channels). Designed with the impeccable and ui-ux-pro-max skills |
 | 23 | *(22 Nov, testing phase)* `run.cmd` starts from a **fresh database every run** (sample data, no requests, uploads cleared), so test slip photos can be reused; `run.cmd -Keep` keeps data |
 | 24 | *(22 Nov)* Interface copy: **no full stop at the end of sentences**; two sentences in one line are rewritten as one
+| 25 | *(23 Nov)* **Show all donor numbers** built (free for now, Tk 10 later): needs a **verified** slip; lists **every** opted-in donor of that blood group who can donate today, nearest first, updating by itself; every reveal logged; closes when the request ends or after 48 h. Replaces the earlier cap of 20 numbers (decision 16)
+| 26 | *(23 Nov)* **Donor dashboard**: Requests, History and Settings tabs; donation history, "I donated somewhere else" (starts the 90-day wait), who saw your number, availability, show-my-number opt-in, campus
 
 ---
 
 ## 4. Database
 
-### 4.1 Built now (16 tables, `bloodride/db/schema.sql`, matches Team15_ERD)
+### 4.1 Built now (17 tables: the 16 of Team15_ERD plus `contact_reveal`, added 23 Nov)
 `campus`, `app_user` (guest/member/admin), `donor` (subtype, `next_eligible_date` set by trigger), `rider` (subtype), `notification_channel`, `hospital`, `requisition_slip` (`image_hash` UNIQUE), `blood_request` (`tracking_token` UNIQUE), `donor_alert` (associative; seen_at, response), `mission` (rider_id = escort both ways), `trip` (weak; fare quote columns), `mission_event` (weak; audit), `donation` (mission null = self-reported), `payment`, `payout_entry`, `fare_rate`.
 
 ### 4.2 Planned additions (Sprints 2–4) → 18 tables
@@ -194,9 +196,9 @@ Named errors (SQLSTATE `BR001`–`BR008`) become clear messages in the API.
 |---|---|
 | `/` landing | Bangla line "রক্ত লাগবে?" and a short headline, then **the real request form**. Picking a hospital shows **live counts of donors who can give today, per blood group, within 10 km** (same rules as the alert wave). Only **Send request** alerts anyone. Then three plain promises and a line inviting donors |
 | `/request` | The same form, opened by the hospital QR posters (hospital already chosen, with a Change button) |
-| `/track/<link>` | The patient's private live board: alerted, seen, declined, accepted, donors with phone numbers if shared |
+| `/track/<link>` | The patient's private live board: alerted, seen, declined, accepted, donors with phone numbers if shared, and **Show all donor numbers** once the slip is verified |
 | `/alert/<request>/<donor>` | What a donor opens from an alert: details, directions, share-my-number, I can donate / I can't. If every bag is taken: Join the backup list |
-| `/donor` | Donor home: big blood-group label, "You can donate today" or the 90-day rest countdown, requests for you, an **Available for alerts** switch, browser notifications, Telegram |
+| `/donor` | **Donor dashboard**: blood-group label and 90-day status, then tabs. **Requests** (alerts to answer), **History** (donations, "I donated somewhere else", requests accepted, who saw your number), **Settings** (available for alerts, show my number to verified patients, campus, notifications) |
 | `/posters`, `/poster/<id>` | Printable QR posters per hospital |
 | `/admin` | Slips the OCR couldn't read; mark genuine or reject a fake (stops the request). Key: `ADMIN_KEY` in `backend\.env` (default `change-me`) |
 
@@ -222,9 +224,9 @@ Named errors (SQLSTATE `BR001`–`BR008`) become clear messages in the API.
 | 12 | Accept API with clear errors | Farhan | **Done** |
 | 13 | Donor alert page | Farhan | **Done** (+ backup-list state, added today) |
 | 14 | Race test | Farhan | **Done:** 2 donors and all 6 donors at once; exactly one wins |
-| 15 | Web push | Ayman | **Built**, key generation works. **Not yet tried on a real phone or browser** |
-| 16 | Telegram bot | Ayman | **Built. Needs a bot token from @BotFather** to test |
-| 17 | OCR slip check | Ayman | **Built.** Tesseract isn't installed yet, so every slip shows "needs review" (harmless now) |
+| 15 | Web push | Ayman | **Built**, not yet tried in a real browser. Phone testing (https tunnel) is a Sprint 2 task |
+| 16 | Telegram bot | Ayman | **Moved to Sprint 4** (23 Nov). Code exists; needs a bot from @BotFather |
+| 17 | OCR slip check | Ayman | **Moved to Sprint 3** (23 Nov). Code exists; Tesseract not installed, so every slip shows "needs review" (harmless, alerts don't wait for it) |
 | 18 | QR request page (guest) | Abir | **Done** |
 | 19 | Live board (SSE) | Abir | **Done**; live updates verified through the proxy |
 | 20 | Demo rehearsal | All | 8 Dec |
@@ -252,7 +254,7 @@ Named errors (SQLSTATE `BR001`–`BR008`) become clear messages in the API.
 
 ---
 
-## 6. Product backlog (63 tasks)
+## 6. Product backlog (65 tasks)
 
 | Sprint | Dates | Theme | Tasks |
 |---|---|---|---|
@@ -443,6 +445,11 @@ Files named `*_before_redesign`, `*_before_slip_change`, `*_before_workflow`, `*
   - Figtree font;
   - no full stops in the interface.
 - Every run now starts from a fresh database for testing.
+
+**23 November: donor dashboard and reveal**
+- Moved Telegram (Sprint 4) and Tesseract (Sprint 3) out of Sprint 1; phone testing became a Sprint 2 task.
+- Built **Show all donor numbers** for verified patients and the **donor dashboard** (see decisions 25 and 26). 9 new tests (28 in total) and a 20-step end-to-end check through the running site.
+- Fixed the live board in real browsers: the website's gzip was holding the stream back (`Cache-Control: no-transform`).
 
 **Still to do (from section 11 and the Sprint 1 table)**
 - Push the code to GitHub.

@@ -24,6 +24,9 @@ NAMED_ERRORS = {
     "BR006": (409, "This request is closed"),
     "BR007": (409, "You have already answered this request"),
     "BR008": (403, "Only an admin can do this"),
+    "BR009": (409, "Donor numbers open once our team has verified your slip"),
+    "BR010": (409, "Donor numbers are not unlocked for this request"),
+    "BR011": (410, "Donor numbers are closed for this request (it ended, or 48 hours have passed)"),
 }
 
 

@@ -57,6 +57,11 @@ SELECT user_id, 'AB-',
             ELSE ST_MakePoint(90.4060, 23.7400)::geography END
   FROM u;
 
+-- about half the donors opt in to "show my number to verified patients" (off by default; on for the demo donors)
+UPDATE donor SET listed_for_reveal = (random() < 0.5);
+UPDATE donor SET listed_for_reveal = true
+ WHERE user_id IN (SELECT user_id FROM app_user WHERE phone IN ('01800000001', '01800000002'));
+
 -- past donations for about 60% of donors, 10 to 400 days ago.
 -- The trigger trg_set_next_eligible fills donor.next_eligible_date from these rows,
 -- so roughly 1 in 5 of them is still inside the 90-day wait.
