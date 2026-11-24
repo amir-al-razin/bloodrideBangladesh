@@ -3,9 +3,10 @@ import HospitalList from "./hospital-list";
 
 export default function PostersPage() {
   return (
-    <main>
-      <h1>Hospital posters</h1>
-      <p className="lead">Print one for each ward, scanning it opens the request form with the hospital already chosen</p>
+    <main className="container narrow">
+      <p className="label">For hospitals</p>
+      <h1>QR posters</h1>
+      <p className="lead">Print one for the blood bank and each ward. Scanning it opens the request form with the hospital already chosen.</p>
       <Suspense fallback={<p className="muted">Loading hospitals…</p>}>
         <HospitalList />
       </Suspense>

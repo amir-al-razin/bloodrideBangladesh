@@ -1,18 +1,18 @@
 """Hospitals and blood requests. Owner: Mostafa.
 
-POST /api/requests is the whole first half of the flow:
-save slip + request (guest account if needed) -> first alert round at once -> OCR + auto_check_slip
-(the check is recorded for the admin; since 22 Nov it no longer holds the alerts back).
+POST /api/requests saves the slip and the request (guest account if needed), reads the slip
+(OCR + auto_check_slip, a hint for staff) and tells the hospital's staff. Donors are alerted only
+after a staff member approves it (routes/staff.py), then search.py widens the search on a timer.
 """
 import asyncio
 import hashlib
-import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from .. import db, notify, slip_check
-from ..config import ALERT_BATCH, ALERT_RADIUS_KM, MAX_SLIP_BYTES, UPLOAD_DIR
+from ..config import ALERT_BATCH, ALERT_RADII_KM, ALERT_RADIUS_KM, MAX_SLIP_BYTES, UPLOAD_DIR
+from .auth import clean_phone
 
 router = APIRouter(prefix="/api")
 DHAKA = timezone(timedelta(hours=6))                       # Bangladesh has no daylight saving
@@ -59,16 +59,23 @@ async def donors_near_hospital(hospital_id: int):
 
 
 async def start_alert_round(request_id: int) -> dict:
-    """Run send_alert_wave (round 1 radius) and send the alerts. Used here and by the admin review."""
+    """Send the next alert round, each one wider (ALERT_RADII_KM). Used on approval and by search.py."""
     async with db.tx() as conn:
+        cur = await conn.execute("SELECT search_round FROM blood_request WHERE request_id = %s", (request_id,))
+        done = (await cur.fetchone())["search_round"]
+        radius = ALERT_RADII_KM[min(done, len(ALERT_RADII_KM) - 1)]
         cur = await conn.execute("CALL send_alert_wave(%s::int, %s::numeric, %s::int)",
-                                 (request_id, ALERT_RADIUS_KM, ALERT_BATCH))
+                                 (request_id, radius, ALERT_BATCH))
         res = await cur.fetchone()
     if res["p_alerted"]:
-        task = asyncio.create_task(notify.alert_round(request_id, res["p_round"]))
-        _sending.add(task)                     # keep a reference until it finishes
-        task.add_done_callback(_sending.discard)
-    return {"round": res["p_round"], "alerted": res["p_alerted"]}
+        background(notify.alert_round(request_id, res["p_round"]))
+    return {"round": res["p_round"], "alerted": res["p_alerted"], "radius_km": radius}
+
+
+def background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _sending.add(task)                         # keep a reference until it finishes
+    task.add_done_callback(_sending.discard)
 
 
 _sending: set[asyncio.Task] = set()
@@ -85,9 +92,7 @@ async def create_request(
     needed_by: str = Form(...),             # from <input type="datetime-local">, Dhaka time
     slip: UploadFile = File(...),
 ):
-    phone = re.sub(r"[\s-]", "", phone).removeprefix("+88")
-    if not re.fullmatch(r"01[3-9]\d{8}", phone):
-        raise HTTPException(422, {"error": "bad_phone", "message": "Enter an 11-digit mobile number, like 01712345678"})
+    phone = clean_phone(phone)
     if blood_group not in GROUPS:
         raise HTTPException(422, {"error": "bad_blood_group", "message": "Choose a blood group"})
     if urgency not in ("emergency", "urgent", "scheduled"):
@@ -121,9 +126,8 @@ async def create_request(
     path.write_bytes(data)                     # only after the database accepted it (not a reused slip)
 
     request_id, token = created["p_request_id"], created["p_token"]
-    wave = await start_alert_round(request_id)          # everything opens once the slip is uploaded
 
-    # then read the slip; the result is only recorded for the admin (it does not hold alerts back)
+    # read the slip; the result is a hint for the staff member who approves it
     text = await asyncio.to_thread(slip_check.read_slip, str(path))
     async with db.tx() as conn:
         cur = await conn.execute(
@@ -132,6 +136,7 @@ async def create_request(
                 WHERE r.request_id = %s""", (text, request_id))
         check = await cur.fetchone()
 
+    background(notify.staff_new_request(request_id))
     return {"request_id": request_id, "tracking_token": token,
             "slip_status": check["check_status"], "failed_checks": check["failed_checks"],
-            "ocr_available": slip_check.ocr_available(), **wave}
+            "ocr_available": slip_check.ocr_available()}

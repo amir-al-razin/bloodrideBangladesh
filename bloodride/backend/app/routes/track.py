@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from psycopg.rows import dict_row
 
 from .. import db
-from ..config import DATABASE_URL
+from ..config import ALERT_RADII_KM, APPROVAL_MINUTES, DATABASE_URL, WAVE_MINUTES
 
 router = APIRouter(prefix="/api/track")
 
@@ -33,8 +33,12 @@ async def snapshot(conn, token: str) -> dict | None:
             ORDER BY m.created_at""", (board["request_id"],))
     board["donors"] = await cur.fetchall()
     board.pop("tracking_token")
-    # "reveal all numbers": allowed once the slip is verified, while the request is open, for 48 hours
-    verified = board["slip_status"] in ("auto_verified", "verified")
+    board["max_rounds"] = len(ALERT_RADII_KM)
+    board["radius_km"] = ALERT_RADII_KM[max(0, min(board["rounds"], len(ALERT_RADII_KM)) - 1)]
+    board["wave_minutes"] = WAVE_MINUTES
+    board["approval_minutes"] = APPROVAL_MINUTES.get(board["urgency"], 15)
+    # "show donor numbers": allowed once the hospital has approved, while the request is open, for 48 hours
+    verified = board["slip_status"] == "verified"
     open_ = board["status"] not in ("closed", "cancelled")
     unlocked = board["contacts_unlocked_at"]
     board["reveal"] = {
@@ -65,7 +69,7 @@ async def track(token: str):
 
 @router.post("/{token}/unlock")
 async def unlock(token: str):
-    """Reveal all numbers: free for now, a Tk 10 payment step comes later. Needs a verified slip."""
+    """Show donor numbers: free (numbers are never sold). Needs a hospital-approved request."""
     async with db.tx() as conn:
         cur = await conn.execute("CALL unlock_contacts(%s, NULL, NULL)", (token,))
         row = await cur.fetchone()

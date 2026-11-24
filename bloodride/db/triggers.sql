@@ -1,6 +1,6 @@
 -- BloodRide triggers (Sprint 1). Owner: Razin.
 -- Named errors use SQLSTATE class BR so the API can turn them into clear messages:
---   BR001 donor_not_eligible   BR002 slip_rejected   BR005 status_backwards
+--   BR001 donor_not_eligible   BR002 slip_not_approved   BR005 status_backwards
 
 -- ---------------------------------------------------------------
 -- 1. trg_set_next_eligible
@@ -60,12 +60,12 @@ CREATE TRIGGER trg_check_donor_eligibility
     FOR EACH ROW EXECUTE FUNCTION check_donor_eligibility();
 
 -- ---------------------------------------------------------------
--- 3. trg_block_rejected_slip
---    BEFORE INSERT on donor_alert: alerts go out as soon as the slip is
---    uploaded (decision of 22 Nov); only a slip an admin REJECTED stops them.
---    (Replaces trg_require_verified_slip from the DBMS proposal.)
+-- 3. trg_require_approved_slip
+--    BEFORE INSERT on donor_alert: no donor is alerted until a hospital staff
+--    member (or a BloodRide admin) has approved the request's slip (24 Nov).
+--    The automatic slip reader only helps the staff; it never approves.
 -- ---------------------------------------------------------------
-CREATE OR REPLACE FUNCTION block_rejected_slip() RETURNS trigger
+CREATE OR REPLACE FUNCTION require_approved_slip() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
     v_status text;
@@ -74,16 +74,16 @@ BEGIN
       FROM blood_request r JOIN requisition_slip s USING (slip_id)
      WHERE r.request_id = NEW.request_id;
 
-    IF v_status = 'rejected' THEN
-        RAISE EXCEPTION 'slip_rejected: request % has a rejected slip', NEW.request_id
+    IF v_status IS DISTINCT FROM 'verified' THEN
+        RAISE EXCEPTION 'slip_not_approved: request % slip is %', NEW.request_id, v_status
               USING ERRCODE = 'BR002';
     END IF;
     RETURN NEW;
 END $$;
 
-CREATE TRIGGER trg_block_rejected_slip
+CREATE TRIGGER trg_require_approved_slip
     BEFORE INSERT ON donor_alert
-    FOR EACH ROW EXECUTE FUNCTION block_rejected_slip();
+    FOR EACH ROW EXECUTE FUNCTION require_approved_slip();
 
 -- ---------------------------------------------------------------
 -- 4. trg_log_status_change

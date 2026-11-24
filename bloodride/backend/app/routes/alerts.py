@@ -1,11 +1,11 @@
 """What a donor sees after an alert: details, seen, Accept / Can't donate. Owner: Farhan.
-
-Sprint 1 has no login yet (Sprint 2), so the alert is addressed by request id + donor id.
+The donor is the signed-in account; the alert is addressed by request id.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import db
+from ..auth import donor_user
 
 router = APIRouter(prefix="/api/alerts")
 
@@ -14,8 +14,9 @@ class AcceptBody(BaseModel):
     share_phone: bool = False
 
 
-@router.get("/{request_id}/{donor_id}")
-async def alert_details(request_id: int, donor_id: int):
+@router.get("/{request_id}")
+async def alert_details(request_id: int, user: dict = Depends(donor_user)):
+    donor_id = user["user_id"]
     async with db.pool.connection() as conn:
         cur = await conn.execute(
             """SELECT a.request_id, a.donor_id, u.full_name AS donor, a.distance_km, a.round_no,
@@ -35,8 +36,9 @@ async def alert_details(request_id: int, donor_id: int):
     return row
 
 
-@router.post("/{request_id}/{donor_id}/seen")
-async def mark_seen(request_id: int, donor_id: int):
+@router.post("/{request_id}/seen")
+async def mark_seen(request_id: int, user: dict = Depends(donor_user)):
+    donor_id = user["user_id"]
     async with db.tx() as conn:
         cur = await conn.execute(
             """UPDATE donor_alert SET seen_at = now()
@@ -44,8 +46,9 @@ async def mark_seen(request_id: int, donor_id: int):
     return {"updated": cur.rowcount}
 
 
-@router.post("/{request_id}/{donor_id}/accept")
-async def accept(request_id: int, donor_id: int, body: AcceptBody):
+@router.post("/{request_id}/accept")
+async def accept(request_id: int, body: AcceptBody, user: dict = Depends(donor_user)):
+    donor_id = user["user_id"]
     async with db.tx() as conn:
         cur = await conn.execute("CALL accept_request(%s::int, %s::int, %s::boolean)", (request_id, donor_id, body.share_phone))
         res = await cur.fetchone()
@@ -56,8 +59,9 @@ async def accept(request_id: int, donor_id: int, body: AcceptBody):
             "message": "This request is already filled, so you’re on the backup list and we’ll alert you if needed"}
 
 
-@router.post("/{request_id}/{donor_id}/decline")
-async def decline(request_id: int, donor_id: int):
+@router.post("/{request_id}/decline")
+async def decline(request_id: int, user: dict = Depends(donor_user)):
+    donor_id = user["user_id"]
     async with db.tx() as conn:
         cur = await conn.execute(
             """UPDATE donor_alert SET response = 'declined', responded_at = now(),

@@ -19,20 +19,20 @@ export default function Poster() {
     get<Hospital>(`/api/hospitals/${hospitalId}`).then(setHospital).catch((e) => setError(e.message));
   }, [hospitalId]);
 
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <main className="container"><p className="error">{error}</p></main>;
   return (
-    <main className="poster">
-      <h1 style={{ fontSize: 34 }}>Need blood? Scan here</h1>
-      <p className="lead">{hospital?.name}</p>
+    <main className="container poster">
+      <p className="label"><span className="red">Blood</span>Ride BD</p>
+      <h1>Need blood?<br />Scan here.</h1>
+      <p className="lead" style={{ margin: "14px auto 0", fontWeight: 700, color: "var(--black)" }}>{hospital?.name}</p>
       {/* eslint-disable-next-line @next/next/no-img-element -- generated data URL */}
       <div className="qr">{qr && <img src={qr} alt={`QR code for ${url}`} />}</div>
-      <p>
-        Send the doctor’s slip and we alert nearby donors, with live progress
-        <br />
-        No account needed
+      <p style={{ fontSize: "1.15rem", fontWeight: 600 }}>
+        Send the doctor’s slip. The blood bank approves it, and donors nearby are alerted.
       </p>
-      <p className="small">{url}</p>
-      <button className="noprint" onClick={() => window.print()}>Print poster</button>
+      <p className="lead" style={{ margin: "8px auto 0" }} lang="bn">রক্ত লাগবে? স্ক্যান করুন।</p>
+      <p className="small" style={{ marginTop: 18 }}>No account needed · Blood is always free · {url}</p>
+      <button className="btn noprint" style={{ marginTop: 24 }} onClick={() => window.print()}>Print poster</button>
     </main>
   );
 }

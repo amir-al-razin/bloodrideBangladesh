@@ -1,5 +1,7 @@
 # BloodRide workflow
 
+> **Older plan (21-23 Nov).** Some parts changed on 24 Nov: requests now wait for hospital approval before donors are alerted, and donor numbers are never sold. The current plan is in [`../PROJECT.md`](../PROJECT.md).
+
 Agreed 22 November 2026. Builds on `summary.md`. Changes since the 21 November plan:
 - **The slip is only uploaded for now.** Detailed verification is left for later (options kept in section 7).
 - **Paid contact unlock** (Tk 10), with four safety rules.

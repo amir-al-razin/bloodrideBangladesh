@@ -18,6 +18,9 @@ DECLARE
     v_user int;
     v_slip int;
 BEGIN
+    IF EXISTS (SELECT 1 FROM app_user WHERE phone = p_phone AND is_blocked) THEN
+        RAISE EXCEPTION 'phone_blocked: % may not send requests', p_phone USING ERRCODE = 'BR015';
+    END IF;
     SELECT user_id INTO v_user FROM app_user WHERE phone = p_phone;
     IF NOT FOUND THEN
         INSERT INTO app_user (full_name, phone, account_type)
@@ -111,24 +114,41 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------
--- review_slip (Sprint 2 preview, used by the demo admin page):
--- an admin marks a slip verified, or rejects a fake one. Rejecting cancels
--- the request, so no more alerts go out and donors can no longer accept.
+-- review_slip: a staff member of the request's hospital (or a BloodRide admin)
+-- approves the slip, which lets alerts go out, or rejects a fake one, which
+-- cancels the request. A slip can only be decided once.
+-- Named errors: BR008 not_allowed   BR012 already_reviewed
 -- ---------------------------------------------------------------
-CREATE OR REPLACE PROCEDURE review_slip(p_slip_id int, p_admin_id int, p_approve boolean)
+CREATE OR REPLACE PROCEDURE review_slip(p_slip_id int, p_user_id int, p_approve boolean)
 LANGUAGE plpgsql AS $$
+DECLARE
+    v_hospital int;
+    v_check    text;
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM app_user WHERE user_id = p_admin_id AND account_type = 'admin') THEN
-        RAISE EXCEPTION 'not_admin: user % is not an admin', p_admin_id USING ERRCODE = 'BR008';
+    SELECT r.hospital_id, s.check_status INTO v_hospital, v_check
+      FROM requisition_slip s JOIN blood_request r USING (slip_id)
+     WHERE s.slip_id = p_slip_id
+       FOR UPDATE OF s;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'request_not_found: slip %', p_slip_id USING ERRCODE = 'BR003';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM app_user WHERE user_id = p_user_id AND account_type = 'admin')
+       AND NOT EXISTS (SELECT 1 FROM hospital_staff WHERE user_id = p_user_id AND hospital_id = v_hospital) THEN
+        RAISE EXCEPTION 'not_allowed: user % cannot review requests of hospital %', p_user_id, v_hospital
+              USING ERRCODE = 'BR008';
+    END IF;
+    IF v_check NOT IN ('needs_review', 'auto_verified') THEN
+        RAISE EXCEPTION 'already_reviewed: slip % is already %', p_slip_id, v_check USING ERRCODE = 'BR012';
+    END IF;
+
     UPDATE requisition_slip
        SET check_status = CASE WHEN p_approve THEN 'verified' ELSE 'rejected' END,
-           reviewed_by = p_admin_id, reviewed_at = now()
+           reviewed_by = p_user_id, reviewed_at = now()
      WHERE slip_id = p_slip_id;
     IF NOT p_approve THEN
         UPDATE blood_request SET status = 'cancelled' WHERE slip_id = p_slip_id;
     END IF;
-    -- tell the patient's open tracking page (a verified slip opens "show all donor numbers")
+    -- tell the patient's open tracking page
     PERFORM pg_notify('live_board', request_id::text) FROM blood_request WHERE slip_id = p_slip_id;
 END $$;
 
@@ -156,8 +176,9 @@ $$;
 
 -- ---------------------------------------------------------------
 -- send_alert_wave: one round of alerts. Walks donors_in_ring with an
--- explicit cursor and alerts up to p_batch donors.
--- Sprint 1 runs round 1; Sprint 2 adds the timer that widens the radius.
+-- explicit cursor and alerts up to p_batch donors. The API calls it once on
+-- approval and then again on a timer with a wider radius, until a donor
+-- accepts or the last round has gone out. Needs an approved slip.
 -- ---------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE send_alert_wave(
     p_request_id int, p_radius_km numeric, p_batch int,
@@ -165,20 +186,25 @@ CREATE OR REPLACE PROCEDURE send_alert_wave(
 LANGUAGE plpgsql AS $$
 DECLARE
     v_status text;
+    v_check  text;
     rec      record;
     cur CURSOR FOR SELECT * FROM donors_in_ring(p_request_id, p_radius_km);
 BEGIN
-    SELECT status INTO v_status FROM blood_request WHERE request_id = p_request_id FOR UPDATE;
+    SELECT r.status, s.check_status, r.search_round + 1 INTO v_status, v_check, p_round
+      FROM blood_request r JOIN requisition_slip s USING (slip_id)
+     WHERE r.request_id = p_request_id
+       FOR UPDATE OF r;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'request_not_found: %', p_request_id USING ERRCODE = 'BR003';
     END IF;
     IF v_status NOT IN ('open', 'searching') THEN
         RAISE EXCEPTION 'request_closed: request % is %', p_request_id, v_status USING ERRCODE = 'BR006';
     END IF;
+    IF v_check <> 'verified' THEN
+        RAISE EXCEPTION 'slip_not_approved: request % slip is %', p_request_id, v_check USING ERRCODE = 'BR002';
+    END IF;
 
-    SELECT coalesce(max(round_no), 0) + 1 INTO p_round FROM donor_alert WHERE request_id = p_request_id;
     p_alerted := 0;
-
     OPEN cur;
     LOOP
         EXIT WHEN p_alerted >= p_batch;
@@ -190,9 +216,10 @@ BEGIN
     END LOOP;
     CLOSE cur;
 
-    IF p_alerted > 0 THEN
-        UPDATE blood_request SET status = 'searching' WHERE request_id = p_request_id AND status = 'open';
-    END IF;
+    UPDATE blood_request
+       SET search_round = p_round, last_wave_at = now(),
+           status = CASE WHEN status = 'open' THEN 'searching' ELSE status END
+     WHERE request_id = p_request_id;
 END $$;
 
 -- ---------------------------------------------------------------
@@ -253,7 +280,7 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------
--- Reveal all numbers (23 Nov). Free for now; a Tk 10 payment step comes later.
+-- Show donor numbers (23 Nov). Free: numbers are never sold (decided 24 Nov).
 -- Named errors: BR009 slip_not_verified   BR010 contacts_locked   BR011 contacts_expired
 -- ---------------------------------------------------------------
 
@@ -277,7 +304,7 @@ BEGIN
     IF v_status IN ('closed', 'cancelled') THEN
         RAISE EXCEPTION 'request_closed: request % is %', p_request_id, v_status USING ERRCODE = 'BR006';
     END IF;
-    IF v_check NOT IN ('auto_verified', 'verified') THEN
+    IF v_check <> 'verified' THEN
         RAISE EXCEPTION 'slip_not_verified: request % slip is %', p_request_id, v_check USING ERRCODE = 'BR009';
     END IF;
     IF p_unlocked_at IS NULL THEN
@@ -329,4 +356,109 @@ BEGIN
        AND (d.next_eligible_date IS NULL OR d.next_eligible_date <= current_date)
        AND d.user_id <> r.requester_id
      ORDER BY ST_Distance(d.home_location, h.location);
+END $$;
+
+-- ---------------------------------------------------------------
+-- Accounts (24 Nov). Passwords are stored as bcrypt hashes (pgcrypto).
+-- Named errors: BR013 bad_login   BR014 phone_taken
+-- ---------------------------------------------------------------
+
+-- start_session: checks the phone and password and opens a 30-day session.
+CREATE OR REPLACE FUNCTION start_session(p_phone text, p_password text)
+RETURNS TABLE (token text, user_id int, account_type text)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_user app_user%ROWTYPE;
+BEGIN
+    SELECT * INTO v_user FROM app_user u WHERE u.phone = p_phone;
+    IF NOT FOUND OR v_user.password_hash IS NULL
+       OR v_user.password_hash <> crypt(p_password, v_user.password_hash) THEN
+        RAISE EXCEPTION 'bad_login: wrong phone number or password' USING ERRCODE = 'BR013';
+    END IF;
+    DELETE FROM user_session s WHERE s.user_id = v_user.user_id AND s.expires_at < now();
+    RETURN QUERY
+    INSERT INTO user_session (user_id) VALUES (v_user.user_id)
+    RETURNING user_session.token, user_session.user_id, v_user.account_type;
+END $$;
+
+-- register_donor: a new donor account. A phone number that was only used as a guest
+-- (someone who once requested blood) becomes a full account; a registered one is refused.
+CREATE OR REPLACE PROCEDURE register_donor(
+    p_full_name text, p_phone text, p_password text, p_blood_group text,
+    p_lat double precision, p_lng double precision, p_campus_id int, p_listed boolean,
+    INOUT p_user_id int DEFAULT NULL)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_type text;
+BEGIN
+    SELECT user_id, account_type INTO p_user_id, v_type FROM app_user WHERE phone = p_phone FOR UPDATE;
+    IF FOUND AND v_type <> 'guest' THEN
+        RAISE EXCEPTION 'phone_taken: % already has an account', p_phone USING ERRCODE = 'BR014';
+    END IF;
+    IF FOUND THEN
+        UPDATE app_user
+           SET full_name = p_full_name, campus_id = p_campus_id, account_type = 'member',
+               password_hash = crypt(p_password, gen_salt('bf'))
+         WHERE user_id = p_user_id;
+    ELSE
+        INSERT INTO app_user (full_name, phone, campus_id, password_hash, account_type)
+        VALUES (p_full_name, p_phone, p_campus_id, crypt(p_password, gen_salt('bf')), 'member')
+        RETURNING user_id INTO p_user_id;
+    END IF;
+    INSERT INTO donor (user_id, blood_group, home_location, listed_for_reveal)
+    VALUES (p_user_id, p_blood_group,
+            ST_SetSRID(ST_MakePoint(p_lng, p_lat), 4326)::geography, p_listed);
+END $$;
+
+-- ---------------------------------------------------------------
+-- escalate_overdue_approvals (24 Nov): requests the hospital has not approved or rejected in time
+-- (minutes allowed depend on urgency). Each is marked once with escalated_at, so the BloodRide team
+-- is alerted and the request goes to the top of their list. Returns the requests escalated now.
+-- Nothing is ever approved automatically.
+-- ---------------------------------------------------------------
+CREATE OR REPLACE FUNCTION escalate_overdue_approvals(
+    p_emergency_min int, p_urgent_min int, p_scheduled_min int)
+RETURNS TABLE (request_id int)
+LANGUAGE sql AS $$
+    UPDATE blood_request r
+       SET escalated_at = now()
+      FROM requisition_slip s
+     WHERE s.slip_id = r.slip_id
+       AND r.status = 'open'
+       AND r.escalated_at IS NULL
+       AND s.check_status IN ('needs_review', 'auto_verified')
+       AND r.created_at < now() - make_interval(mins => CASE r.urgency
+                                                        WHEN 'emergency' THEN p_emergency_min
+                                                        WHEN 'urgent'    THEN p_urgent_min
+                                                        ELSE p_scheduled_min END)
+    RETURNING r.request_id
+$$;
+
+-- ---------------------------------------------------------------
+-- Admin (24 Nov): staff accounts and blocking.
+-- ---------------------------------------------------------------
+
+-- create_staff: a blood-bank login for one hospital. A phone that already has an account is refused.
+CREATE OR REPLACE PROCEDURE create_staff(
+    p_full_name text, p_phone text, p_password text, p_hospital_id int, INOUT p_user_id int DEFAULT NULL)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM app_user WHERE phone = p_phone) THEN
+        RAISE EXCEPTION 'phone_taken: % already has an account', p_phone USING ERRCODE = 'BR014';
+    END IF;
+    INSERT INTO app_user (full_name, phone, password_hash, account_type)
+    VALUES (p_full_name, p_phone, crypt(p_password, gen_salt('bf')), 'staff')
+    RETURNING user_id INTO p_user_id;
+    INSERT INTO hospital_staff (user_id, hospital_id) VALUES (p_user_id, p_hospital_id);
+END $$;
+
+-- remove_staff: the person can no longer sign in. The account stays, because their past approvals
+-- (requisition_slip.reviewed_by) must keep pointing at who approved.
+CREATE OR REPLACE PROCEDURE remove_staff(p_user_id int)
+LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM hospital_staff WHERE user_id = p_user_id;
+    DELETE FROM user_session WHERE user_id = p_user_id;
+    UPDATE app_user SET account_type = 'guest', password_hash = NULL
+     WHERE user_id = p_user_id AND account_type = 'staff';
 END $$;

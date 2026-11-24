@@ -1,35 +1,45 @@
 import type { Metadata, Viewport } from "next";
-import { Figtree, Hind_Siliguri } from "next/font/google";
+import { Hind_Siliguri, Outfit } from "next/font/google";
 import Link from "next/link";
-import Drop from "@/components/drop";
 import "./globals.css";
 
-// Figtree for all English text; Hind Siliguri only for Bangla (it is the fallback for Bengali characters).
-const figtree = Figtree({ subsets: ["latin"], variable: "--font-figtree" });
-const hind = Hind_Siliguri({ subsets: ["latin", "bengali"], weight: ["400", "500", "600", "700"], variable: "--font-hind" });
+// Outfit, the bloodridebd.com typeface; Hind Siliguri for Bangla text.
+const outfit = Outfit({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800", "900"], variable: "--font-outfit" });
+const hind = Hind_Siliguri({ subsets: ["latin", "bengali"], weight: ["400", "600", "700"], variable: "--font-hind" });
 
 export const metadata: Metadata = {
-  title: "BloodRide · রক্তদাতা খুঁজুন",
-  description: "Find a blood donor near your hospital in Dhaka",
+  title: "BloodRide BD · Find a blood donor near the hospital",
+  description: "Hospital-approved blood requests, sent to eligible donors close by in Dhaka",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#fbf8f5" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#ffffff" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${figtree.variable} ${hind.variable}`}>
+    <html lang="en" className={`${outfit.variable} ${hind.variable}`}>
       <body>
-        <div className="wrap">
-          <header className="top">
-            <Link href="/" className="brand"><Drop size={24} /><span>Blood<b>Ride</b></span></Link>
-            <nav><Link href="/donor">For donors</Link></nav>
-          </header>
-          {children}
-          <footer className="bottom">
-            <span>BloodRide · Dhaka</span>
-            <nav><Link href="/posters">Hospital posters</Link><Link href="/admin">Admin</Link></nav>
-          </footer>
-        </div>
+        <header className="header">
+          <div className="container">
+            <Link href="/" className="logo"><span className="r">Blood</span>Ride BD</Link>
+            <nav className="nav">
+              <Link href="/request" className="hide-sm">Request blood</Link>
+              <Link href="/staff" className="hide-sm">Hospital staff</Link>
+              <Link href="/donor" className="btn sm">I am a donor</Link>
+            </nav>
+          </div>
+        </header>
+        {children}
+        <footer className="footer">
+          <div className="container">
+            <span>BloodRide BD · Dhaka · Blood is always free</span>
+            <nav>
+              <Link href="/request">Request blood</Link>
+              <Link href="/staff">Hospital staff</Link>
+              <Link href="/posters">QR posters</Link>
+              <Link href="/admin">Admin</Link>
+            </nav>
+          </div>
+        </footer>
       </body>
     </html>
   );

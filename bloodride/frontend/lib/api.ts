@@ -45,3 +45,27 @@ export function when(iso: string | null | undefined): string {
 }
 
 export type Hospital = { hospital_id: number; name: string; address: string };
+
+export type Me = {
+  user_id: number; full_name: string; phone: string;
+  account_type: "guest" | "member" | "staff" | "admin";
+  hospital_id: number | null; hospital: string | null; is_donor: boolean;
+};
+
+/** The signed-in account, or null when signed out. */
+export async function getMe(): Promise<Me | null> {
+  try {
+    return await get<Me>("/api/auth/me");
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) return null;
+    throw e;
+  }
+}
+
+export const GROUPS = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"] as const;
+
+export function daysUntil(isoDate: string | null | undefined): number {
+  if (!isoDate) return 0;
+  const ms = new Date(isoDate + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime();
+  return Math.max(0, Math.round(ms / 86400000));
+}

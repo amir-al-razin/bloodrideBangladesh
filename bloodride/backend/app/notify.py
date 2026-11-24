@@ -128,7 +128,7 @@ async def alert_round(request_id: int, round_no: int) -> int:
     sent = 0
     async with httpx.AsyncClient(timeout=10) as client:
         for row in rows:
-            url = f"{FRONTEND_URL}/alert/{request_id}/{row['donor_id']}"
+            url = f"{FRONTEND_URL}/alert/{request_id}"
             title = f"{row['blood_group']} blood needed ({row['urgency']})"
             body = f"{row['hospital']}, {row['distance_km']} km from you. Can you donate?"
             log.info("[alert] round %s -> %s (%s km): %s", round_no, row["full_name"], row["distance_km"], url)
@@ -141,4 +141,55 @@ async def alert_round(request_id: int, round_no: int) -> int:
                 else:
                     ok = False
                 sent += ok
+    return sent
+
+
+# ---------------------------------------------------------------- telling hospital staff
+async def staff_new_request(request_id: int) -> int:
+    """A new request is waiting: notify the staff of that hospital (web push). The staff page also
+    refreshes by itself, so this is a nudge, not the only way they find out."""
+    async with db.pool.connection() as conn:
+        cur = await conn.execute(
+            """SELECT r.blood_group, r.bags_needed, r.urgency, h.name AS hospital, c.address
+                 FROM blood_request r
+                 JOIN hospital h USING (hospital_id)
+                 JOIN hospital_staff st ON st.hospital_id = r.hospital_id
+                 JOIN notification_channel c ON c.user_id = st.user_id
+                      AND c.channel_type = 'web_push' AND c.is_active
+                WHERE r.request_id = %s""", (request_id,))
+        rows = await cur.fetchall()
+    sent = 0
+    for row in rows:
+        payload = {"title": f"Approve: {row['blood_group']} x{row['bags_needed']} ({row['urgency']})",
+                   "body": f"New blood request at {row['hospital']}. Check the slip and approve.",
+                   "url": f"{FRONTEND_URL}/staff"}
+        sent += await asyncio.to_thread(_send_push, json.loads(row["address"]), payload)
+    log.info("[staff] request %s waiting for approval, %s staff notified", request_id, sent)
+    return sent
+
+
+async def approval_overdue(request_id: int) -> int:
+    """The hospital hasn't approved in time: remind its staff and alert every BloodRide admin."""
+    async with db.pool.connection() as conn:
+        cur = await conn.execute(
+            """SELECT u.account_type, r.blood_group, r.bags_needed, r.urgency, h.name AS hospital, c.address
+                 FROM blood_request r
+                 JOIN hospital h USING (hospital_id)
+                 JOIN app_user u ON u.account_type = 'admin'
+                      OR u.user_id IN (SELECT user_id FROM hospital_staff WHERE hospital_id = r.hospital_id)
+                 JOIN notification_channel c ON c.user_id = u.user_id
+                      AND c.channel_type = 'web_push' AND c.is_active
+                WHERE r.request_id = %s""", (request_id,))
+        rows = await cur.fetchall()
+    sent = 0
+    for row in rows:
+        if row["account_type"] == "admin":
+            title = f"Overdue: {row['hospital']} hasn't approved {row['blood_group']}"
+            body = "Call the blood bank, confirm the slip, and approve it from the staff page."
+        else:
+            title = f"Still waiting: {row['blood_group']} x{row['bags_needed']} ({row['urgency']})"
+            body = "A family is waiting for your approval. The BloodRide team has been told."
+        sent += await asyncio.to_thread(_send_push, json.loads(row["address"]),
+                                        {"title": title, "body": body, "url": f"{FRONTEND_URL}/staff"})
+    log.info("[escalation] request %s: %s reminders sent", request_id, sent)
     return sent

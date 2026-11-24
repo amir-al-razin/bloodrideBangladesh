@@ -1,126 +1,113 @@
-# BloodRide: Sprint 1 prototype
+# BloodRide: the app
 
-The first slice of BloodRide: **request → slip check → search → alert → accept**, with a live board.
+Stage 1 is built: **a request goes in, the hospital approves it, nearby donors are alerted, a donor says yes.** For the idea and the plan, read [`../PROJECT.md`](../PROJECT.md) first.
 
-A patient scans a hospital’s QR poster, continues as a guest, fills the form and uploads the doctor’s slip.
-As soon as the slip is uploaded, the database finds eligible donors nearby (PostGIS, 90-day rule) and alerts them by web push, Telegram and the in-app inbox.
-The slip is also read (OCR + `auto_check_slip`) and the result is kept for the admin, who can reject a fake slip and stop the request.
-The first donor to accept wins; later donors become backups.
-The patient watches alerted / seen / declined / accepted update live on a private link.
+Stack: PostgreSQL + PostGIS (database), FastAPI (Python API), Next.js (website).
 
-Stack: PostgreSQL 18 + PostGIS 3.7 · FastAPI · Next.js 16 · psycopg 3 · LISTEN/NOTIFY → server-sent events. Full list: [TECH_STACK.md](TECH_STACK.md).
+## Run it
 
-## Setup (Windows, once)
+**Linux or Mac** (needs Docker, Python 3.12+, Node 20+):
 
-You need PostgreSQL 18 with PostGIS 3.7, Python 3.12+ and Node 20+.
-
-1. **PostGIS.** Install it on PostgreSQL 18 with Stack Builder (Spatial Extensions → PostGIS 3.7), or with the official bundle from download.osgeo.org/postgis/windows/pg18/.
-   - Do **not** overwrite PostgreSQL’s own DLLs (libssl, libcrypto, zlib and others) if asked.
-2. **Database.** This runs a small server inside the project folder, on port 5433, with no password:
-   ```powershell
-   .\scripts\db.ps1 init
-   ```
-   It creates `.pgdata/`, starts the server and builds the database from `db/*.sql`.
-3. **Backend.**
-   ```powershell
-   cd backend
-   python -m venv .venv
-   .venv\Scripts\pip install -r requirements.txt
-   copy .env.example .env
-   ```
-4. **Frontend.**
-   ```powershell
-   cd frontend
-   npm install
-   ```
-
-## Run
-
-**One command** (from the `bloodride` folder), or double-click `run.cmd`:
-
-```powershell
-.\run.cmd            # database + API + website, then open http://localhost:3000
-.\run.cmd -Keep      # keep last run's data (by default each run starts from a fresh database)
-.\run.cmd -Prod      # build the website and run it in production mode
+```bash
+./run.sh            # fresh database with sample data, then API + website
+./run.sh --keep     # keep last run's data
 ```
 
-The first run also sets things up:
-- the database server (`.pgdata`);
-- the Python environment and `backend\.env`;
-- the npm packages.
-
-Press **Ctrl+C** to stop the API and the website. The database keeps running; stop it with `.\scripts\db.ps1 stop`. You still need PostgreSQL 18 with PostGIS installed, plus Python and Node (Setup above).
-
-**By hand** (three terminals), if you want to restart one part on its own:
+**Windows** (needs PostgreSQL 18 with PostGIS, Python 3.12+, Node 20+; see "Windows setup" below):
 
 ```powershell
-.\scripts\db.ps1 start                        # database (after a restart of the PC)
-cd backend;  .venv\Scripts\python run.py      # API on http://localhost:8000
-cd frontend; npm run dev                      # site on http://localhost:3000
+.\run.cmd           # or: .\run.cmd -Keep
 ```
 
-Use `run.py`, not plain `uvicorn`: on Windows, psycopg’s async mode needs the selector event loop.
+Then open **http://localhost:3000**.
 
-## The Sprint 1 demo
+## Demo accounts
 
-1. Open **http://localhost:3000**, pick *Dhaka Medical College Hospital* (or open its QR poster and scan it).
-2. **Continue as guest**:
-   - Enter any name and an `01…` number, choose **AB-**, 1 bag.
-   - Upload a slip. To make one, run `backend\.venv\Scripts\python backend\tests\make_sample_slip.py slip.png`.
-3. The tracking page opens and the alerts have already gone out.
-   - Slips the OCR could not read (all of them, if Tesseract isn't installed) appear on **/admin**. The key is `ADMIN_KEY` from `.env`, default `change-me`.
-   - There you can mark a slip genuine, or reject a fake one, which stops the request.
-4. On two phones or two browser windows, open **/donor** and pick **Demo Donor One** and **Demo Donor Two**.
-   - Each shows the alert in its inbox; web push or Telegram works if you set it up.
-   - Press **I can donate** on both. One wins, the other becomes a backup.
-   - The tracking page updates by itself.
+All use the password **`bloodride123`**.
 
-Phones on the same Wi-Fi:
-- Run `npm run dev -- -H 0.0.0.0` with `ALLOWED_DEV_ORIGINS=<pc-ip>`, then open `http://<pc-ip>:3000`.
-- Web push needs HTTPS (localhost is fine), so on phones use Telegram or the inbox.
+| Who | Phone | What they do |
+|---|---|---|
+| Dhaka Medical College blood bank | 01500000001 | Approves requests at that hospital |
+| BMU blood bank | 01500000002 | Same, for BMU |
+| Square Hospital blood bank | 01500000003 | Same, for Square |
+| Demo Donor One (AB−) | 01800000001 | Gets alerts near Dhaka Medical |
+| Demo Donor Two (AB−) | 01800000002 | Same |
+| Admin | 01700000000 | `/admin`, and approves for any hospital on `/staff` |
+
+## Try the whole flow (5 minutes)
+
+Use two browser windows. One is normal, the other is private, so each has its own sign-in.
+
+1. **Family:** open `/request`, choose *Dhaka Medical College Hospital*, blood group **AB−**, 1 bag. Add any photo as the slip and send it. You land on the tracking page: "Waiting for the hospital to approve".
+2. **Staff:** in the other window, open `/staff`, sign in as `01500000001`. The request is there with the slip photo. Press **Approve and alert donors**.
+3. **Family's page** updates by itself: approved, donors alerted.
+4. **Donor:** sign out of staff, open `/donor`, sign in as `01800000001`. The request is under *Requests*. Open it and press **I can donate**.
+5. **Family's page** now shows the donor with a **Call** button.
+
+Want a test slip? `backend/.venv/bin/python backend/tests/make_sample_slip.py slip.png`
+
+## Pages
+
+| Page | Who | What |
+|---|---|---|
+| `/` | Everyone | What BloodRide is |
+| `/request` | Family | The request form. The QR poster opens `/request?hospital=<id>` |
+| `/track/<link>` | Family | Live progress on a private link |
+| `/staff` | Hospital staff | Approve or reject requests for their hospital |
+| `/donor` | Donor | Sign up, sign in, alerts, history, settings |
+| `/alert/<id>` | Donor | One request: "I can donate" or "Not this time" |
+| `/posters` | Hospital | Printable QR posters |
+| `/admin` | BloodRide team | Live dashboard of all requests, hospitals and their staff logins, blocked phone numbers |
+
+## How the search works
+
+- Round 1 alerts up to 10 donors within **5 km** of the hospital, nearest first.
+- If the request still needs donors 5 minutes later, the next round goes to **10 km**, then **20**, then **35**. A donor is never alerted twice for the same request.
+- A donor is only alerted if they have the right blood group, are switched to "available", and are past their 90-day rest.
+- All numbers are settings in `backend/.env`: `ALERT_RADII_KM`, `ALERT_BATCH`, `WAVE_MINUTES`.
+
+## If the hospital doesn't approve in time
+
+After 5 minutes for an emergency (15 urgent, 60 scheduled), the request is marked **overdue**:
+- staff get a reminder
+- every admin account gets an alert
+- the request moves to the top of the staff page
+
+An admin calls the blood bank and approves it from `/staff`, since admins can approve for any hospital. Nothing is approved automatically. The time limits are settings in `backend/.env`: `APPROVE_EMERGENCY_MIN`, `APPROVE_URGENT_MIN`, `APPROVE_SCHEDULED_MIN`.
 
 ## Checks
 
-```powershell
-cd backend; .venv\Scripts\python -m pytest -q        # 18 tests: race, triggers, slip check, NOTIFY
-psql -p 5433 -U postgres -d bloodride -f db/smoke_test.sql   # the whole flow in SQL, rolled back
-bash scripts/api_flow.sh                                     # the whole flow through the API
-.\scripts\db.ps1 reset                                       # rebuild the database from scratch
+```bash
+cd backend && .venv/bin/python -m pytest -q     # 37 tests: approval rules, overdue fallback, race, 90 days, sign-in…
+bash scripts/api_flow.sh                         # the whole flow through the running site
+psql -h localhost -p 5433 -U postgres -d bloodride -f db/smoke_test.sql   # the flow in SQL, rolled back
 ```
 
-## Optional parts
+On Windows, use `backend\.venv\Scripts\python` instead of `backend/.venv/bin/python`.
 
-- **Tesseract OCR** (auto-verify slips): install it from the UB Mannheim Windows build, then restart the API. Without it, every slip goes to admin review.
-- **Telegram:**
-  - Create a bot with @BotFather.
-  - Put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_BOT_USERNAME` in `backend/.env` and restart the API.
-  - On /donor, press **Link Telegram**.
+## Where the code is
 
-## Where things are
-
-| Path | What | Owner |
+| File | What | Owner |
 |---|---|---|
-| `db/schema.sql` | 16 tables from Team15_ERD | Saa’d |
-| `db/seed.sql` | 3 hospitals, 3 campuses, 302 donors, riders, fare rate | Saa’d |
-| `db/triggers.sql` | 90-day rule, slip rule, audit trail, live-board NOTIFY | Razin |
-| `db/routines.sql` | `submit_request`, `donors_in_ring`, `send_alert_wave` (cursor) | Mostafa |
-| | `accept_request` (row lock) | Farhan |
-| | `auto_check_slip` | Ayman |
-| `db/views.sql` | `v_request_progress`, `v_slip_review_queue` | Abir |
-| `backend/app/routes/requests.py` | request API | Mostafa |
-| `backend/app/routes/alerts.py` | seen / accept / decline API | Farhan |
-| `backend/app/routes/track.py` | live board (SSE) | Abir |
-| `backend/app/notify.py`, `slip_check.py` | web push, Telegram, OCR | Ayman |
-| `backend/tests/` | race test and rule tests | Farhan |
-| `frontend/app/request/` | QR request form | Abir |
-| `frontend/app/track/` | live board | Abir |
-| `frontend/app/alert/` | donor alert page | Farhan |
-| `frontend/app/donor/` | donor demo page | Ayman |
-| `frontend/public/sw.js` | push service worker | Ayman |
+| `db/schema.sql` | 19 tables | Saa'd |
+| `db/seed.sql` | 3 hospitals with staff, 302 donors, demo accounts | Saa'd |
+| `db/triggers.sql` | 90-day rule, **no alerts before approval**, audit trail, live updates | Razin |
+| `db/routines.sql` | request, search, alert rounds, accept (row lock), approval, sign-in, sign-up | Mostafa, Farhan, Razin |
+| `db/views.sql` | live progress, staff queue | Abir |
+| `backend/app/routes/` | API: `requests`, `staff`, `alerts`, `donors`, `track`, `auth` | Mostafa, Farhan, Abir |
+| `backend/app/search.py` | the widening search on a timer | Mostafa |
+| `backend/app/notify.py` | browser notifications (and Telegram, parked) | Ayman |
+| `frontend/app/` | one folder per page (table above) | Abir, Farhan, Ayman |
+| `frontend/app/globals.css` | the design, matching bloodridebd.com | Abir |
 
-## Known limits (planned for later sprints)
+## Known limits
 
-- No sign-in yet (Sprint 2). The donor page lets you pick a sample donor, and alert pages are addressed by request and donor id.
-- Only the first alert round runs. The widening search on a timer is Sprint 2.
-- `/admin` is protected by a shared key until admin login exists (Sprint 2).
-- Each open tracking page holds one database connection for LISTEN. That's fine for a demo; Sprint 5 makes it scale.
+- Runs on a laptop only. Phones on the same Wi-Fi can use it, but notifications need https, so test those on the laptop.
+- Browser notifications only. No phone app yet.
+- The slip reader (OCR) is off unless Tesseract is installed. Staff check every slip by eye, which is the plan anyway.
+
+## Windows setup (once)
+
+1. **PostGIS:** install it on PostgreSQL 18 with Stack Builder (Spatial Extensions → PostGIS 3.7). If asked, don't overwrite PostgreSQL's own DLLs.
+2. **Database:** `.\scripts\db.ps1 init` creates a small server in the project folder on port 5433.
+3. `run.cmd` does the rest on its first run: the Python environment, `backend\.env`, and npm packages.

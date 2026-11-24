@@ -1,14 +1,15 @@
-"""Donor dashboard: profile, settings, donation history, "I donated elsewhere", who saw my number,
-alerts, and the alert channels. Owner: Ayman (channels) with Abir (pages).
-Real sign-in arrives in Sprint 2; until then the donor page lets you choose a seeded donor.
+"""The signed-in donor's dashboard: profile, settings, location, donation history, "I donated
+elsewhere", who saw my number, alerts, and the alert channels. Owner: Ayman (channels) with Abir (pages).
+Everything under /api/me works on the account in the session cookie.
 """
 import json
 from datetime import date
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .. import db, notify
+from ..auth import any_user, donor_user
 
 router = APIRouter(prefix="/api")
 
@@ -28,6 +29,11 @@ class Settings(BaseModel):
 
 class SelfReport(BaseModel):
     donated_on: date
+
+
+class Location(BaseModel):
+    lat: float
+    lng: float
 
 
 def _json(data):
@@ -52,20 +58,11 @@ async def campuses():
         return await cur.fetchall()
 
 
-@router.get("/demo/donors")
-async def demo_donors():
-    """The two named demo donors first, then a few AB- donors (the demo request's group)."""
-    async with db.pool.connection() as conn:
-        cur = await conn.execute(
-            """SELECT d.user_id AS donor_id, u.full_name, d.blood_group
-                 FROM donor d JOIN app_user u USING (user_id)
-                WHERE u.phone LIKE '018%' OR d.blood_group = 'AB-'
-                ORDER BY (u.phone LIKE '018%') DESC, d.user_id
-                LIMIT 12""")
-        return await cur.fetchall()
+@router.get("/me/profile")
+async def my_profile(user: dict = Depends(donor_user)):
+    return await donor_profile(user["user_id"])
 
 
-@router.get("/donors/{donor_id}")
 async def donor_profile(donor_id: int):
     """Everything the dashboard shows at the top and in Settings."""
     async with db.pool.connection() as conn:
@@ -87,8 +84,9 @@ async def donor_profile(donor_id: int):
     return _json(row)
 
 
-@router.post("/donors/{donor_id}/settings")
-async def update_settings(donor_id: int, body: Settings):
+@router.post("/me/settings")
+async def update_settings(body: Settings, user: dict = Depends(donor_user)):
+    donor_id = user["user_id"]
     """Availability (unavailable donors are never alerted, trg_check_donor_eligibility), showing the number
     to verified patients (unlocked_donors), and campus."""
     async with db.tx() as conn:
@@ -105,8 +103,20 @@ async def update_settings(donor_id: int, body: Settings):
     return await donor_profile(donor_id)
 
 
-@router.get("/donors/{donor_id}/history")
-async def donor_history(donor_id: int):
+@router.post("/me/location")
+async def update_location(body: Location, user: dict = Depends(donor_user)):
+    """Move the home-area pin (used for the distance search)."""
+    if not (20.5 <= body.lat <= 26.7 and 88.0 <= body.lng <= 92.7):
+        raise HTTPException(422, {"error": "bad_location", "message": "That location is outside Bangladesh"})
+    async with db.tx() as conn:
+        await conn.execute("UPDATE donor SET home_location = ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography"
+                           " WHERE user_id = %s", (body.lng, body.lat, user["user_id"]))
+    return {"saved": True}
+
+
+@router.get("/me/history")
+async def donor_history(user: dict = Depends(donor_user)):
+    donor_id = user["user_id"]
     """Donations (through BloodRide or reported) and the requests this donor accepted."""
     async with db.pool.connection() as conn:
         await _donor_exists(conn, donor_id)
@@ -130,8 +140,9 @@ async def donor_history(donor_id: int):
     return _json({"donations": donations, "missions": missions})
 
 
-@router.post("/donors/{donor_id}/donations", status_code=201)
-async def report_donation(donor_id: int, body: SelfReport):
+@router.post("/me/donations", status_code=201)
+async def report_donation(body: SelfReport, user: dict = Depends(donor_user)):
+    donor_id = user["user_id"]
     """'I donated elsewhere': a self-reported donation. trg_set_next_eligible starts the 90-day wait."""
     if body.donated_on > date.today():
         raise HTTPException(422, {"error": "bad_date", "message": "The donation date can’t be in the future"})
@@ -149,8 +160,9 @@ async def report_donation(donor_id: int, body: SelfReport):
     return await donor_profile(donor_id)
 
 
-@router.get("/donors/{donor_id}/reveals")
-async def donor_reveals(donor_id: int):
+@router.get("/me/reveals")
+async def donor_reveals(user: dict = Depends(donor_user)):
+    donor_id = user["user_id"]
     """Who saw this donor's number through 'reveal all numbers' (the donor's notice)."""
     async with db.pool.connection() as conn:
         await _donor_exists(conn, donor_id)
@@ -164,10 +176,11 @@ async def donor_reveals(donor_id: int):
         return _json(await cur.fetchall())
 
 
-@router.post("/donors/{donor_id}/webpush", status_code=201)
-async def save_push_subscription(donor_id: int, sub: PushSubscription):
+@router.post("/me/webpush", status_code=201)
+async def save_push_subscription(sub: PushSubscription, user: dict = Depends(any_user)):
+    """Donors get alerts here; staff get 'new request to approve' here."""
+    donor_id = user["user_id"]
     async with db.tx() as conn:
-        await _donor_exists(conn, donor_id)
         await conn.execute(
             """INSERT INTO notification_channel (user_id, channel_type, address)
                VALUES (%s, 'web_push', %s) ON CONFLICT DO NOTHING""",
@@ -175,13 +188,14 @@ async def save_push_subscription(donor_id: int, sub: PushSubscription):
     return {"saved": True}
 
 
-@router.get("/donors/{donor_id}/telegram")
-async def telegram_link(donor_id: int):
-    return {"enabled": notify.telegram_enabled(), "link": notify.telegram_link(donor_id)}
+@router.get("/me/telegram")
+async def telegram_link(user: dict = Depends(donor_user)):
+    return {"enabled": notify.telegram_enabled(), "link": notify.telegram_link(user["user_id"])}
 
 
-@router.get("/donors/{donor_id}/alerts")
-async def donor_alerts(donor_id: int):
+@router.get("/me/alerts")
+async def donor_alerts(user: dict = Depends(donor_user)):
+    donor_id = user["user_id"]
     """The donor's inbox: works even when no push or Telegram is set up."""
     async with db.pool.connection() as conn:
         cur = await conn.execute(

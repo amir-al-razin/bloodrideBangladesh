@@ -1,0 +1,25 @@
+// Dhaka areas for the donor's home pin, when they don't share their exact location.
+// Coordinates are the rough centre of each area; the search only needs about a kilometre of accuracy.
+export const AREAS: { name: string; lat: number; lng: number }[] = [
+  { name: "Azimpur / Lalbagh", lat: 23.7275, lng: 90.385 },
+  { name: "Badda", lat: 23.7805, lng: 90.4265 },
+  { name: "Banani", lat: 23.7937, lng: 90.4066 },
+  { name: "Bashundhara", lat: 23.8193, lng: 90.4526 },
+  { name: "Dhanmondi", lat: 23.7465, lng: 90.376 },
+  { name: "Farmgate", lat: 23.7577, lng: 90.3897 },
+  { name: "Gazipur (Board Bazar)", lat: 23.948, lng: 90.3792 },
+  { name: "Gulshan", lat: 23.7925, lng: 90.4078 },
+  { name: "Jatrabari", lat: 23.7104, lng: 90.4349 },
+  { name: "Keraniganj", lat: 23.698, lng: 90.345 },
+  { name: "Khilgaon", lat: 23.7516, lng: 90.4256 },
+  { name: "Mirpur", lat: 23.8069, lng: 90.3687 },
+  { name: "Mohakhali", lat: 23.778, lng: 90.405 },
+  { name: "Mohammadpur", lat: 23.7662, lng: 90.3589 },
+  { name: "Motijheel", lat: 23.733, lng: 90.4172 },
+  { name: "Old Dhaka (Sadarghat)", lat: 23.7086, lng: 90.4108 },
+  { name: "Rampura", lat: 23.7612, lng: 90.4207 },
+  { name: "Savar", lat: 23.8583, lng: 90.2667 },
+  { name: "Shahbagh / Nilkhet", lat: 23.7389, lng: 90.3958 },
+  { name: "Tejgaon", lat: 23.759, lng: 90.3926 },
+  { name: "Uttara", lat: 23.8759, lng: 90.3795 },
+];

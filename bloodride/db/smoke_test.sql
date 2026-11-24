@@ -1,4 +1,4 @@
--- Walks the Sprint 1 flow in SQL and rolls everything back.
+-- Walks the Stage 1 flow in SQL and rolls everything back.
 --   psql -p 5433 -U postgres -d bloodride -f db/smoke_test.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -12,10 +12,19 @@ CALL submit_request(1, 'Rahim Uddin', '01611111111', 'AB-', 1, 'emergency',
 SELECT request_id, status, requester_id, (SELECT account_type FROM app_user WHERE user_id = requester_id)
   FROM blood_request ORDER BY request_id DESC LIMIT 1;
 
-\echo '--- 2. first alert round, straight after upload (no verification needed)'
+\echo '--- 2. no alerts before approval: the wave is refused (BR002)'
+SAVEPOINT s1;
+\set ON_ERROR_STOP off
+CALL send_alert_wave(currval('blood_request_request_id_seq')::int, 5, 10, NULL, 0);
+\set ON_ERROR_STOP on
+ROLLBACK TO SAVEPOINT s1;
+
+\echo '--- 2b. Dhaka Medical College blood bank (staff user) approves, then round 1 goes out'
+SELECT user_id AS staff_id FROM hospital_staff WHERE hospital_id = 1 \gset
+CALL review_slip(currval('requisition_slip_slip_id_seq')::int, :staff_id, true);
 CALL send_alert_wave(currval('blood_request_request_id_seq')::int, 10, 10, NULL, 0);
 
-\echo '--- 3. slip check from OCR text (recorded for the admin)'
+\echo '--- 3. slip reader on OCR text (a hint for staff; it never overrides their decision)'
 SELECT * FROM auto_check_slip(currval('requisition_slip_slip_id_seq')::int,
   E'DHAKA MEDICAL COLLEGE HOSPITAL\nPatient: Rahim Uddin\nBlood group: AB (-ve)  1 bag\nDate: '
   || to_char(current_date, 'DD/MM/YYYY') || E'\nDr. Karim, BMDC Reg No: A-12345');

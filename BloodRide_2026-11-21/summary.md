@@ -1,5 +1,7 @@
 # BloodRide: full project summary
 
+> **Older plan (21-23 Nov).** Some parts changed on 24 Nov: requests now wait for hospital approval before donors are alerted, and donor numbers are never sold. The current plan is in [`../PROJECT.md`](../PROJECT.md).
+
 Last updated **22 November 2026**. This file is the single source for the current design, decisions, prototype status, open questions and risks. The detailed workflow is in `BloodRide_2026-11-21/WORKFLOW.md`. Files listed as stale in section 7.4 describe older designs; don't show them.
 
 ---

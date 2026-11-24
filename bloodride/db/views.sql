@@ -18,20 +18,26 @@ SELECT r.request_id,
        count(a.donor_id) FILTER (WHERE a.response = 'declined') AS declined,
        count(a.donor_id) FILTER (WHERE a.response = 'accepted') AS accepted,
        count(a.donor_id) FILTER (WHERE a.response = 'backup')   AS backup,
-       coalesce(max(a.round_no), 0)                            AS rounds
+       r.search_round                                          AS rounds,
+       r.escalated_at,
+       r.last_wave_at,
+       s.reviewed_at                                           AS approved_at
   FROM blood_request r
   JOIN hospital h USING (hospital_id)
   JOIN requisition_slip s USING (slip_id)
   LEFT JOIN donor_alert a USING (request_id)
- GROUP BY r.request_id, h.name, s.check_status;
+ GROUP BY r.request_id, h.name, s.check_status, s.reviewed_at;
 
--- Slips waiting for an admin, oldest first (used by the demo admin page).
+-- Requests waiting for hospital approval, oldest first (the staff page).
+-- auto_verified only means the slip reader found the expected details; a person still approves.
 CREATE OR REPLACE VIEW v_slip_review_queue AS
-SELECT s.slip_id, s.image_path, r.request_id, r.blood_group, r.bags_needed, r.urgency,
-       h.name AS hospital, u.full_name AS requester, u.phone, r.created_at
+SELECT s.slip_id, s.image_path, s.check_status AS reader_result, r.request_id, r.hospital_id,
+       r.blood_group, r.bags_needed, r.urgency, r.needed_by,
+       h.name AS hospital, u.full_name AS requester, u.phone, r.created_at, r.escalated_at,
+       floor(extract(epoch FROM now() - r.created_at) / 60)::int AS minutes_waiting
   FROM requisition_slip s
   JOIN blood_request r USING (slip_id)
   JOIN hospital h USING (hospital_id)
   JOIN app_user u ON u.user_id = r.requester_id
- WHERE s.check_status = 'needs_review' AND r.status <> 'cancelled'
- ORDER BY r.created_at;
+ WHERE s.check_status IN ('needs_review', 'auto_verified') AND r.status <> 'cancelled'
+ ORDER BY r.escalated_at IS NULL, r.created_at;     -- overdue ones first

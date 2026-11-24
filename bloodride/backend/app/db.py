@@ -17,16 +17,20 @@ pool = AsyncConnectionPool(DATABASE_URL, min_size=1, max_size=10, open=False,
 # SQLSTATE codes raised by our triggers and procedures (db/triggers.sql, db/routines.sql)
 NAMED_ERRORS = {
     "BR001": (409, "This donor cannot donate yet (inside the 90-day wait or unavailable)"),
-    "BR002": (409, "This request's slip was rejected"),
+    "BR002": (409, "The hospital has not approved this request yet"),
     "BR003": (404, "Request not found"),
     "BR004": (404, "This donor was not alerted for this request"),
     "BR005": (409, "A mission's status can only move forward"),
     "BR006": (409, "This request is closed"),
     "BR007": (409, "You have already answered this request"),
-    "BR008": (403, "Only an admin can do this"),
-    "BR009": (409, "Donor numbers open once our team has verified your slip"),
+    "BR008": (403, "Only staff of this hospital can do this"),
+    "BR009": (409, "Donor numbers open once the hospital has approved your request"),
     "BR010": (409, "Donor numbers are not unlocked for this request"),
     "BR011": (410, "Donor numbers are closed for this request (it ended, or 48 hours have passed)"),
+    "BR012": (409, "This request was already approved or rejected"),
+    "BR013": (401, "Wrong phone number or password"),
+    "BR014": (409, "This phone number already has an account"),
+    "BR015": (403, "This phone number is blocked from sending requests. Please contact the hospital."),
 }
 
 

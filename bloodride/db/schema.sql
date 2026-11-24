@@ -1,8 +1,9 @@
--- BloodRide schema: 17 tables. The 16 of Team15_ERD.pdf (21 Nov 2026), plus contact_reveal and the
--- reveal columns (donor.listed_for_reveal, blood_request.contacts_unlocked_at) added on 23 Nov 2026.
+-- BloodRide schema: 19 tables. The 16 of Team15_ERD.pdf (21 Nov 2026), plus contact_reveal (23 Nov),
+-- and hospital_staff + user_session (24 Nov, Stage 1: staff approve requests before donors are alerted).
 -- Owner: Saa'd. Run through db/build.sql.
 
 CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- crypt() for password hashes
 
 -- ---------- people
 CREATE TABLE campus (
@@ -18,7 +19,8 @@ CREATE TABLE app_user (
     phone         text NOT NULL UNIQUE CHECK (phone ~ '^01[3-9][0-9]{8}$'),
     password_hash text,                                        -- null for guests
     account_type  text NOT NULL DEFAULT 'member'
-                  CHECK (account_type IN ('guest', 'member', 'admin')),
+                  CHECK (account_type IN ('guest', 'member', 'staff', 'admin')),
+    is_blocked    boolean NOT NULL DEFAULT false,              -- admin blocked this number (fake requests)
     created_at    timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT guest_has_no_password CHECK ((account_type = 'guest') = (password_hash IS NULL))
 );
@@ -50,12 +52,27 @@ CREATE TABLE notification_channel (
     UNIQUE (user_id, channel_type, address)
 );
 
+-- a signed-in browser: the cookie holds the token
+CREATE TABLE user_session (
+    token      text PRIMARY KEY DEFAULT encode(gen_random_bytes(32), 'hex'),
+    user_id    int NOT NULL REFERENCES app_user ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL DEFAULT now() + interval '30 days'
+);
+
 -- ---------- requests
 CREATE TABLE hospital (
     hospital_id serial PRIMARY KEY,
     name        text NOT NULL,
     address     text,
     location    geography(Point, 4326) NOT NULL
+);
+
+-- blood-bank or ward staff who approve requests for their hospital
+CREATE TABLE hospital_staff (
+    user_id     int PRIMARY KEY REFERENCES app_user ON DELETE CASCADE,
+    hospital_id int NOT NULL REFERENCES hospital,
+    desk        text NOT NULL DEFAULT 'blood bank'
 );
 
 CREATE TABLE requisition_slip (
@@ -84,7 +101,10 @@ CREATE TABLE blood_request (
     tracking_token text NOT NULL UNIQUE DEFAULT replace(gen_random_uuid()::text, '-', ''),
     status         text NOT NULL DEFAULT 'open'
                    CHECK (status IN ('open', 'searching', 'filled', 'closed', 'cancelled')),
-    contacts_unlocked_at timestamptz,                          -- "reveal all numbers" pressed (free now, paid later)
+    contacts_unlocked_at timestamptz,                          -- "show donor numbers" pressed (free)
+    search_round   int NOT NULL DEFAULT 0,                     -- alert rounds sent so far (each one wider)
+    last_wave_at   timestamptz,                                -- when the last round went out
+    escalated_at   timestamptz,                                -- staff didn't decide in time: BloodRide team alerted
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 

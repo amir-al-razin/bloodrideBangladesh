@@ -1,5 +1,5 @@
 -- BloodRide sample data (Sprint 1). Owner: Saa'd.
--- 3 hospitals, 3 campuses, 1 admin, 300 student donors around Dhaka, past donations,
+-- 3 hospitals (each with a staff login), 3 campuses, 1 admin, 300 student donors around Dhaka, past donations,
 -- 3 volunteer riders and the first fare_rate row. setseed() makes it the same on every machine.
 -- Coordinates are approximate.
 
@@ -16,9 +16,20 @@ INSERT INTO campus (name, location) VALUES
   ('University of Dhaka',              ST_MakePoint(90.3929, 23.7337)::geography),
   ('BUET',                             ST_MakePoint(90.3925, 23.7265)::geography);
 
--- admin (password hash is a placeholder; login comes in Sprint 2)
+-- admin. Demo accounts all use the password  bloodride123  (change before any real use)
 INSERT INTO app_user (full_name, phone, password_hash, account_type)
-VALUES ('BloodRide Admin', '01700000000', 'sprint2-login', 'admin');
+VALUES ('BloodRide Admin', '01700000000', crypt('bloodride123', gen_salt('bf')), 'admin');
+
+-- one blood-bank staff login per hospital: they approve requests before donors are alerted
+WITH u AS (
+    INSERT INTO app_user (full_name, phone, password_hash, account_type) VALUES
+      ('DMCH Blood Bank',   '01500000001', crypt('bloodride123', gen_salt('bf')), 'staff'),
+      ('BMU Blood Bank',    '01500000002', crypt('bloodride123', gen_salt('bf')), 'staff'),
+      ('Square Blood Bank', '01500000003', crypt('bloodride123', gen_salt('bf')), 'staff')
+    RETURNING user_id, phone
+)
+INSERT INTO hospital_staff (user_id, hospital_id)
+SELECT user_id, right(phone, 1)::int FROM u;
 
 -- 300 donors. Blood groups follow a rough Bangladesh mix (B+ and O+ most common, negatives rare).
 -- Each donor lives within about 2-14 km of their campus.
@@ -47,8 +58,8 @@ SELECT u.user_id,
 -- two named demo donors with AB- near Dhaka Medical College (for the two-phone demo)
 WITH u AS (
     INSERT INTO app_user (campus_id, full_name, phone, password_hash, account_type) VALUES
-      (3, 'Demo Donor One', '01800000001', 'sprint2-login', 'member'),
-      (2, 'Demo Donor Two', '01800000002', 'sprint2-login', 'member')
+      (3, 'Demo Donor One', '01800000001', crypt('bloodride123', gen_salt('bf')), 'member'),
+      (2, 'Demo Donor Two', '01800000002', crypt('bloodride123', gen_salt('bf')), 'member')
     RETURNING user_id, phone
 )
 INSERT INTO donor (user_id, blood_group, home_location)

@@ -33,7 +33,7 @@ TESSERACT = _find_tesseract() if pytesseract else ""
 if TESSERACT:
     pytesseract.pytesseract.tesseract_cmd = TESSERACT
 else:
-    log.warning("Tesseract not found: slips will go to admin review (install it to auto-verify)")
+    log.warning("Tesseract not found: the slip reader is off, staff check every slip by eye")
 
 
 def ocr_available() -> bool:

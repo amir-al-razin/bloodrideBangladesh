@@ -87,7 +87,7 @@ try {
     Write-Host "`nBloodRide is running:" -ForegroundColor Green
     Write-Host "  website   http://localhost:3000"
     Write-Host "  API       http://localhost:8000/docs"
-    Write-Host "  admin key ADMIN_KEY in backend\.env (default: change-me)"
+    Write-Host "  demo sign-ins: staff 01500000001, donor 01800000001, password bloodride123"
     Write-Host "Press Ctrl+C to stop.`n"
 
     while (-not $api.HasExited -and -not $web.HasExited) { Start-Sleep -Seconds 1 }

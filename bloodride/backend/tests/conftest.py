@@ -30,7 +30,7 @@ def conn():
 
 @pytest.fixture
 def verified_request():
-    """A committed AB- request (1 bag) at hospital 1, with round 1 sent (alerts go out on upload).
+    """A committed AB- request (1 bag) at hospital 1, approved by the admin, with round 1 sent.
     Yields (request_id, [alerted donor ids, nearest first]). Cleaned up afterwards."""
     tag = uuid.uuid4().hex
     phone = "0161" + str(uuid.uuid4().int)[:7]
@@ -39,6 +39,8 @@ def verified_request():
             "CALL submit_request(1, 'Test Patient', %s, 'AB-', 1, 'emergency', now() + interval '2 hours',"
             " 'test.png', %s)", (phone, tag)).fetchone()
         rid = row["p_request_id"]
+        slip = c.execute("SELECT slip_id FROM blood_request WHERE request_id = %s", (rid,)).fetchone()["slip_id"]
+        c.execute("CALL review_slip(%s, 1, true)", (slip,))
         c.execute("CALL send_alert_wave(%s, 10, 10)", (rid,))
         donors = [r["donor_id"] for r in c.execute(
             "SELECT donor_id FROM donor_alert WHERE request_id = %s ORDER BY distance_km", (rid,))]
